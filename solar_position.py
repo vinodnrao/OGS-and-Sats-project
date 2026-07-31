@@ -24,38 +24,51 @@ def sun_position_eci(jd):
     z_sun =  R_km * np.sin(eps) * np.sin(lam)
     return np.array([x_sun, y_sun, z_sun])
 
-def in_eclipse(r_sat, r_sun):
-    R_earth = 6371.0   # km
-    sun_hat = r_sun / np.linalg.norm(r_sun)
+def shadow_status(r_sat, r_sun):
+    # Returns 'umbra', 'penumbra', or 'sunlit'.
+    # Umbra   = full shadow, satellite completely blocked from Sun.
+    # Penumbra = partial shadow, satellite partially blocked.
+    # Sunlit   = full sunlight.
+
+    R_earth   = 6371.0
+    R_sun     = 696000.0
+    r_sun_norm = np.linalg.norm(r_sun)
+    sun_hat    = r_sun / r_sun_norm
     sat_dot_sun = np.dot(r_sat, sun_hat)
-    
-    # If sat_dot_sun > 0, satellite is on the sunlit side - cannot be eclipsed
+
+    # Satellite on sunlit side — cannot be in any shadow
     if sat_dot_sun > 0:
-        return False
-    
-    # Perpendicular distance from satellite to the Sun-Earth line
+        return 'sunlit'
+
+    d    = -sat_dot_sun
     perp = np.linalg.norm(r_sat - sat_dot_sun * sun_hat)
-    
-    return perp < R_earth
+
+    # Umbra cone radius — narrows away from Earth
+    r_umbra=R_earth-(R_sun-R_earth)*d /r_sun_norm
+
+    # Penumbra cone radius — widens away from Earth
+    r_penumbra = R_earth + (R_sun + R_earth) * d / r_sun_norm
+
+    if perp < r_umbra:
+        return 'umbra'
+    elif perp < r_penumbra:
+        return 'penumbra'
+    else:
+        return 'sunlit'
+
 
 def solar_elevation(r_sun, ogs_ecef, jd_fr, ogs_lat, ogs_lon):
-    # Compute the elevation of the Sun above the OGS horizon
-    # r_sun is the Sun's ECI position vector
-    # Reuse your existing elevation_angle geometry but for the Sun
     theta    = gmst(jd_fr)
     ogs_eci  = ECEF_to_ECI(ogs_ecef, theta)
     
-    # Vector from OGS to Sun (Sun is so far away this is essentially the Sun direction)
     rho_sun  = r_sun - ogs_eci
     rho_ecef=ECI_to_ECEF(rho_sun,theta)
     
-    # SEZ rotation — same as in propagator.py
     phi     = np.radians(ogs_lat)
     lam     = np.radians(ogs_lon)
     sin_phi, cos_phi = np.sin(phi), np.cos(phi)
     sin_lam, cos_lam = np.sin(lam), np.cos(lam)
 
-    rho_ecef = ECEF_to_ECI(rho_sun, -theta)
     Z = (cos_phi*cos_lam*rho_ecef[0]
        + cos_phi*sin_lam*rho_ecef[1]
        + sin_phi*rho_ecef[2])
