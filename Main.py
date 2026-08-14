@@ -10,9 +10,10 @@ OGS_LOCATIONS = {"York": (53.94762420654297,-1.026491403579712, 0.017)} # dict m
 # lat, lon, alt-km
 # "Oxford": (51.7594, -1.2637, 0.065)
 # Satellite ID's
-SATELLITES = {"SPOQC":68423}
-#"SPEQTRE": 66769
-SCAN_START     = datetime(2026, 3, 1, 0, 0, 0, tzinfo=timezone.utc) # Today
+SATELLITES = {"SPEQTRE": 66769}
+# "SPOQC":68423
+# "SPEQTRE": 66769
+SCAN_START     = datetime(2026, 8, 1, 0, 0, 0, tzinfo=timezone.utc) # Today
 SCAN_DAYS      = 30 # Scanning over a month timeframe
 MIN_ELEVATION = [30]   # threshold of elevation, allows for multiple minimums
 MAX_ELEVATION = 150
@@ -44,32 +45,64 @@ def main():
             
             # Table to display the pass information
             if passes_60:
-                print(f"\n  Passes above {MIN_ELEVATION}°-{MAX_ELEVATION}°:")
-                print(f"  {'ID':<6} {'Rise (UTC)':<27} {'Max El':>3} {'Az':>6} {'Dir':>5} {'Duration':>10} {'Shadow':>9} {'Solar_el':>9} {'Usable':>9}")
-                print(f"  {'-'*95}")
+                print(f"\n  {sat_name} over {ogs_name} - passes {MIN_ELEVATION[0]}°-{MAX_ELEVATION}°:")
+                print()
+                print(f"  {'ID':<6} {'Rise (UTC)':<32} {'Day/Night':<10} {'Max El':>7} {'Az':>7} {'Dir':>5} {'Duration':>9} {'Shadow':>10} {'Solar_el':>9} {'Usable':>7}   {'Reason':<28}")
+                print(f"  {'-'*138}")
                 usable_count=0
                 for idx, p in enumerate(passes_60, start=1):
                     direction = "S" if p['max_az'] >= 180 else "N"
                     if DIRECTION_FILTER != "both" and direction != DIRECTION_FILTER:
                         continue
                     pass_id=f"{sat_name[:3].upper()}-{idx:03d}"
-                    shadow = p.get('shadow') or 'Unknown'
-                    solar_el = f"{p['solar_el']:.1f}°" if p.get('solar_el') is not None else "N/A"
-                    is_usable=(shadow=='sunlit' and p.get('solar_el') is not None and p['solar_el']<-12.0)
+
+                    solar_el_val = p.get('solar_el')
+                    is_night = solar_el_val is not None and solar_el_val < 0.0
+                    day_night = "Night" if is_night else "Day"
+
+                    if is_night:
+                        shadow_display="N/A"
+                        is_usable=solar_el_val<0.0
+                    else:
+                        shadow_display=p.get('shadow') or 'Unknown'
+                        is_usable=False
+
+                    solar_el_display = f"{solar_el_val:.1f}°" if solar_el_val is not None else "N/A"
                     usable_string="YES" if is_usable else "NO"
                     if is_usable:
-                        usable_count+=1
+                        usable_count += 1
 
-                    print(f"{pass_id:<8} "
-                          f"{str(p['rise']):<27} "
+                    if is_usable:
+                        reason=""
+                    else:
+                        reasons=[]
+                        if not is_night:
+                            if solar_el_val is not None:
+                                reasons.append(f"daytime(sol={solar_el_val:.1f}')")
+                            else:
+                                reasons.append("daytime")
+                        elif solar_el_val is not None and solar_el_val >= 0.0:
+                            reasons.append(f"twilight({solar_el_val:.1f}')")
+
+                        shadow_val=p.get('shadow')
+                        if not is_night and shadow_val and shadow_val != 'sunlit':
+                            reasons.append(f"sat={shadow_val}")
+
+                        reason=", ".join(reasons) if reasons else "unknown"
+
+                    print(f"{pass_id:<9} "
+                          f"{str(p['rise']):<32} "
+                          f"{day_night:<10} "
                           f"{p['max_el']:>6.1f}° "
-                          f"{p['max_az']:>5.1f}° "
+                          f"{p['max_az']:>6.1f}° "
                           f"{direction:>5} "
                           f"{p['duration']:>7}s "
-                          f"{shadow:>10} "
-                          f"{solar_el:>8} "
-                          f"{usable_string:>7}")
-                print(f"Usable Passes (Sunlit+Dark OGS): {usable_count} / {len(passes_60)}\n")
+                          f"{shadow_display:>10}"
+                          f"{solar_el_display:>9}"
+                          f"{usable_string:>7}   "
+                          f"{reason:<28}")
+                print(f"\n {'-'*138}")
+                print(f"Usable Passes: {usable_count} / {len(passes_60)}\n")
 
 # Stops it being ran outside of this main file
 if __name__ == "__main__":
