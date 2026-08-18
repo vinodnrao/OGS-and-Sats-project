@@ -3,21 +3,32 @@ from tle_fetch   import fetch_tle # Part 1 - Fetching TLE Data
 from coordinates import GEODETIC_to_ECEF # Part 2 - Constructing co-ordinate systems from the OGS location(s)
 from passes import find_passes # Part 3 - Calculating when the satellites are passing over the OGS location(s)
 from solar_position import sun_position_eci, shadow_status, solar_elevation
+from network import find_pass_pairs
 
 from datetime import datetime, timezone, timedelta
 
-OGS_LOCATIONS = {"York": (53.94762420654297,-1.026491403579712, 0.017)} # dict mapping for co-ordinates from the OGS tuple
-# lat, lon, alt-km
+# CONFIG
+OGS_LOCATIONS = {"York": (53.94762420654297,-1.026491403579712, 0.017),"VIGO": (42.1724,  -8.6883,  0.050)} # dict mapping for co-ordinates from the OGS tuple
 # "Oxford": (51.7594, -1.2637, 0.065)
+# "VIGO": (42.1724,  -8.6883,  0.050),
 # Satellite ID's
 SATELLITES = {"SPEQTRE": 66769}
 # "SPOQC":68423
 # "SPEQTRE": 66769
-SCAN_START     = datetime(2026, 8, 1, 0, 0, 0, tzinfo=timezone.utc) # Today
+SCAN_START     = datetime(2026, 12, 1, 0, 0, 0, tzinfo=timezone.utc) # Today
 SCAN_DAYS      = 30 # Scanning over a month timeframe
 MIN_ELEVATION = [30]   # threshold of elevation, allows for multiple minimums
 MAX_ELEVATION = 150
 DIRECTION_FILTER="both"
+
+def get_OGS_pairs(ogs_locations):
+    # Returns the OGS Names from the locations dict
+    names=list(ogs_locations.keys())
+    pairs=[]
+    for i in range(len(names)):
+        for j in range(i+1, len(names)):
+            pairs.append((names[i], names[j]))
+    return pairs
 
 def main():
     # Compute the OGS's ECEF positions
@@ -31,17 +42,19 @@ def main():
 
     # Run pass finder for each OGS × satellite × elevation threshold
     print("\nScanning passes...\n")
+
+    all_passes={}
+
     for ogs_name, ogs_ecef in ogs_positions.items():
         lat, lon, h=OGS_LOCATIONS[ogs_name]
         for sat_name, sat in sats.items():
             print(f"-- {sat_name} over {ogs_name} --")
-            # debug_eclipse(sats["SPOQC"],SCAN_START)
-            for min_el in MIN_ELEVATION:
-                passes = find_passes(sat=sat,ogs_ecef=ogs_ecef,start_utc=SCAN_START,ogs_lat=lat,ogs_lon=lon,hours=SCAN_DAYS*24,min_el=min_el,max_el=MAX_ELEVATION)
-                print(f"  El > {min_el:2d}':  {len(passes)} passes over {SCAN_DAYS} days")
 
-            # Filtering passes that fit into our 60 degree elevation
-            passes_60 = find_passes(sat, ogs_ecef, SCAN_START,ogs_lat=lat,ogs_lon=lon, hours=SCAN_DAYS*24, min_el=MIN_ELEVATION[0], max_el=MAX_ELEVATION)
+            passes_60 = find_passes(sat=sat,ogs_ecef=ogs_ecef,start_utc=SCAN_START,ogs_lat=lat,ogs_lon=lon,hours=SCAN_DAYS*24,min_el=MIN_ELEVATION[0],max_el=MAX_ELEVATION)
+
+            all_passes[(sat_name, ogs_name)]=passes_60
+
+            print(f"  El > {MIN_ELEVATION[0]:2d}':  {len(passes_60)} passes over {SCAN_DAYS} days")
             
             # Table to display the pass information
             if passes_60:
@@ -103,6 +116,38 @@ def main():
                           f"{reason:<28}")
                 print(f"\n {'-'*138}")
                 print(f"Usable Passes: {usable_count} / {len(passes_60)}\n")
+
+    for sat_name in sats:
+
+        for ogs_a, ogs_b in get_OGS_pairs(OGS_LOCATIONS):
+            passes_a=all_passes.get((sat_name, ogs_a),[])
+            passes_b=all_passes.get((sat_name, ogs_b),[])
+
+            print(f"\n [pairing] {sat_name}: {ogs_a}={len(passes_a)}, {ogs_b}={len(passes_b)}")
+            if not passes_a or not passes_b:
+                print(f" [pairing] Skipping - no passes for one or both OGS Locations")
+                print(f" [pairing] Available Keys: {list(all_passes.keys())}")
+                continue
+
+            pairs=find_pass_pairs(passes_a, passes_b, ogs_a, ogs_b)
+
+            print(f"\n {sat_name} - York <> Vigo Pass Pairs (shortest gap first):")
+            print(f" {'#':<4} {'First OGS':<10} {'First Rise':<27} {'Second OGS':<12} {'Second Rise':<27} {'Gap':>12}")
+            print(f" {'-'*96}")
+
+            for i, pair in enumerate(pairs[:20], start=1): # top 20 shortest
+                gap_s=int(pair['gap_seconds'])
+                gap_str=f"{gap_s//3600}h {(gap_s%3600)//60}m {gap_s%60}s"
+                print(f" {i:<4} {pair['first_ogs']:<10} {str(pair['first_rise']):<27} {pair['second_ogs']:<12} {str(pair['second_rise']):<27} {gap_str:>12}")
+
+            if pairs:
+                best=pairs[0]
+                gap_s=int(best['gap_minutes']*60)
+                gap_str=f"{gap_s//3600}h {(gap_s%3600)//60}m {gap_s%60}s"
+                print(f"\n Best pair: {best['first_ogs']} -> {best['second_ogs']} - gap: {gap_str}")
+
+            else:
+                print(f"No usable pairs within {find_pass_pairs.__defaults__[0]}h threshold")
 
 # Stops it being ran outside of this main file
 if __name__ == "__main__":
