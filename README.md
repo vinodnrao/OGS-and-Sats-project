@@ -2,7 +2,7 @@
 
 ## 16/07/26
 
-- All files should be within the same directory, the rough structure:
+- All files should be within the same directory:
 
 - Main.py
   - tle_fetch.py
@@ -10,6 +10,7 @@
   - propagator.py
   - passes.py
   - solar_position.py
+  - network.py
  
 Python Dependancies:
 - sgp4
