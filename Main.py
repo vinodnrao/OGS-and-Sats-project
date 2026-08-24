@@ -4,15 +4,17 @@ from coordinates import GEODETIC_to_ECEF # Part 2 - Constructing co-ordinate sys
 from passes import find_passes # Part 3 - Calculating when the satellites are passing over the OGS location(s)
 from solar_position import sun_position_eci, shadow_status, solar_elevation
 from network import find_pass_pairs
+from mapping import save_passes_txt
 
 from datetime import datetime, timezone, timedelta
+import numpy as np
 
 # CONFIG
 OGS_LOCATIONS = {"York": (53.94762420654297,-1.026491403579712, 0.017),"VIGO": (42.1724,  -8.6883,  0.050)} # dict mapping for co-ordinates from the OGS tuple
 # "Oxford": (51.7594, -1.2637, 0.065)
 # "VIGO": (42.1724,  -8.6883,  0.050),
 # Satellite ID's
-SATELLITES = {"SPEQTRE": 66769}
+SATELLITES = {"SPOQC":68423}
 # "SPOQC":68423
 # "SPEQTRE": 66769
 SCAN_START     = datetime(2026, 12, 1, 0, 0, 0, tzinfo=timezone.utc) # Today
@@ -48,6 +50,9 @@ def main():
     for ogs_name, ogs_ecef in ogs_positions.items():
         lat, lon, h=OGS_LOCATIONS[ogs_name]
         for sat_name, sat in sats.items():
+            mm_rad_per_min=sats_raw[sat_name]['sat'].no_kozai # radians / minute
+            orbital_period_min=1440/(sats_raw[sat_name]['sat'].no_kozai*(1440/(2*np.pi))) # minutes per orbit
+
             print(f"-- {sat_name} over {ogs_name} --")
 
             passes_60 = find_passes(sat=sat,ogs_ecef=ogs_ecef,start_utc=SCAN_START,ogs_lat=lat,ogs_lon=lon,hours=SCAN_DAYS*24,min_el=MIN_ELEVATION[0],max_el=MAX_ELEVATION)
@@ -129,25 +134,77 @@ def main():
                 print(f" [pairing] Available Keys: {list(all_passes.keys())}")
                 continue
 
-            pairs=find_pass_pairs(passes_a, passes_b, ogs_a, ogs_b)
+            simultaneous, sequential =find_pass_pairs(passes_a, passes_b, ogs_a, ogs_b, orbital_period_min=orbital_period_min)
+            all_pairs = simultaneous + sequential
 
-            print(f"\n {sat_name} - York <> Vigo Pass Pairs (shortest gap first):")
-            print(f" {'#':<4} {'First OGS':<10} {'First Rise':<27} {'Second OGS':<12} {'Second Rise':<27} {'Gap':>12}")
-            print(f" {'-'*96}")
+            if all_pairs:
+                print(f"\n  {'='*175}")
+                print(f"  {sat_name} relay: {ogs_a} <> {ogs_b}   "
+                    f"Simultaneous: {len(simultaneous)}   "
+                    f"Sequential: {len(sequential)}")
+                print(f"  {'='*175}\n")
 
-            for i, pair in enumerate(pairs[:20], start=1): # top 20 shortest
-                gap_s=int(pair['gap_seconds'])
-                gap_str=f"{gap_s//3600}h {(gap_s%3600)//60}m {gap_s%60}s"
-                print(f" {i:<4} {pair['first_ogs']:<10} {str(pair['first_rise']):<27} {pair['second_ogs']:<12} {str(pair['second_rise']):<27} {gap_str:>12}")
+                print(f"  {'#':<4} "
+                    f"{'OGS 1':<8} {'Rise 1':<28} {'Dur':>6} {'El':>6} {'Shadow':>8}   "
+                    f"{'OGS 2':<8} {'Rise 2':<28} {'Dur':>6} {'El':>6} {'Shadow':>8}   "
+                    f"{'Pass':>6}   {'Gap/Overlap':>12}")
+                print(f"  {'-'*175}")
 
-            if pairs:
-                best=pairs[0]
-                gap_s=int(best['gap_minutes']*60)
-                gap_str=f"{gap_s//3600}h {(gap_s%3600)//60}m {gap_s%60}s"
-                print(f"\n Best pair: {best['first_ogs']} -> {best['second_ogs']} - gap: {gap_str}")
+                for i, pair in enumerate(all_pairs[:20], start=1):
+                    fd_s   = int((pair['first_set']  - pair['first_rise']).total_seconds())
+                    sd_s   = int((pair['second_set'] - pair['second_rise']).total_seconds())
+                    fd_str = f"{fd_s//60}m {fd_s%60}s"
+                    sd_str = f"{sd_s//60}m {sd_s%60}s"
+
+                    # Gap or overlap depending on type
+                    if pair['overlap_seconds'] > 0:
+                        ov      = int(pair['overlap_seconds'])
+                        go_str  = f"+{ov//60}m {ov%60}s"   # + prefix = overlap
+                    else:
+                        gap_s   = int(pair['gap_seconds'])
+                        go_str  = (f"{gap_s//3600}h {(gap_s%3600)//60}m {gap_s%60}s"
+                                if gap_s >= 3600
+                                else f"{gap_s//60}m {gap_s%60}s")
+
+                    # Shadow at max elevation — pulled from pass dict if available
+                    f_shadow = pair.get('first_shadow', 'N/A')   # night passes — shadow not relevant
+                    s_shadow = pair.get('second_shadow', 'N/A')
+
+                    print(f"  {i:<4} "
+                        f"{pair['first_ogs']:<8} "
+                        f"{str(pair['first_rise']):<28} "
+                        f"{fd_str:>6} "
+                        f"{pair['first_max_el']:>5.1f}°  "
+                        f"{f_shadow:>8}   "
+                        f"{pair['second_ogs']:<8} "
+                        f"{str(pair['second_rise']):<28} "
+                        f"{sd_str:>6} "
+                        f"{pair['second_max_el']:>5.1f}°  "
+                        f"{s_shadow:>8}   "
+                        f"{pair['orbit_label']:>6}   "
+                        f"{go_str:>12}")
+
+                print(f"\n  {'-'*175}")
+                if simultaneous:
+                    best = simultaneous[0]
+                    ov   = int(best['overlap_seconds'])
+                    print(f"  Best simultaneous (P+{best['n_orbits']}): "
+                        f"{ov//60}m {ov%60}s shared — "
+                        f"{str(best['first_rise'])[:16]}")
+                if sequential:
+                    best  = sequential[0]
+                    gap_s = int(best['gap_seconds'])
+                    print(f"  Best sequential (P+{best['n_orbits']}): "
+                        f"{best['first_ogs']} → {best['second_ogs']} — "
+                        f"gap {gap_s//60}m {gap_s%60}s")
+                print(f"  {'='*175}\n")
 
             else:
-                print(f"No usable pairs within {find_pass_pairs.__defaults__[0]}h threshold")
+                print(f"  No relay opportunities found within {12}h threshold.\n")
+
+    for(sat_name, ogs_name), passes in all_passes.items():
+        lat, lon, _ = OGS_LOCATIONS[ogs_name]
+        save_passes_txt(passes, sat_name, ogs_name)
 
 # Stops it being ran outside of this main file
 if __name__ == "__main__":
