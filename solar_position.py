@@ -31,7 +31,7 @@ def shadow_status(r_sat, r_sun):
     # Sunlit   = full sunlight.
 
     R_earth   = 6371.0
-    R_sun     = 696000.0
+    R_sun     = 695700.0
     r_sun_norm = np.linalg.norm(r_sun)
     sun_hat    = r_sun / r_sun_norm
     sat_dot_sun = np.dot(r_sat, sun_hat)
@@ -56,7 +56,6 @@ def shadow_status(r_sat, r_sun):
     else:
         return 'sunlit'
 
-
 def solar_elevation(r_sun, ogs_ecef, jd_fr, ogs_lat, ogs_lon):
     theta    = gmst(jd_fr)
     ogs_eci  = ECEF_to_ECI(ogs_ecef, theta)
@@ -74,3 +73,27 @@ def solar_elevation(r_sun, ogs_ecef, jd_fr, ogs_lat, ogs_lon):
        + sin_phi*rho_ecef[2])
     rng = np.linalg.norm(rho_ecef)
     return np.degrees(np.arcsin(Z / rng))
+
+def solar_azimuth_el(r_sun, ogs_ecef, jd_fr, ogs_lat, ogs_lon):
+    # Computes the suns azimuth and elevation seen from the OGS
+    # Returns azmith_deg, elevation
+    theta=gmst(jd_fr)
+    ogs_eci=ECEF_to_ECI(ogs_ecef, theta)
+
+    rho_sun  = r_sun - ogs_eci
+    rho_ecef = ECI_to_ECEF(rho_sun, theta)
+
+    phi     = np.radians(ogs_lat)
+    lam     = np.radians(ogs_lon)
+    sin_phi, cos_phi = np.sin(phi), np.cos(phi)
+    sin_lam, cos_lam = np.sin(lam), np.cos(lam)
+
+    # SEZ rotation
+    S = ( sin_phi*cos_lam*rho_ecef[0]+sin_phi*sin_lam*rho_ecef[1]-cos_phi*rho_ecef[2])
+    E = (-sin_lam*rho_ecef[0]+cos_lam*rho_ecef[1])
+    Z = ( cos_phi*cos_lam*rho_ecef[0]+cos_phi*sin_lam*rho_ecef[1]+sin_phi*rho_ecef[2])
+
+    rng = np.linalg.norm(rho_ecef)
+    el  = np.degrees(np.arcsin(Z / rng))
+    az  = np.degrees(np.arctan2(E, -S)) % 360
+    return az, el
