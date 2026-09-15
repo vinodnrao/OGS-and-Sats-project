@@ -15,11 +15,23 @@ def fetch_tle(satellites: dict) -> dict:
         response=requests.get(url,timeout=10) # Can add some error prevention later
         lines=response.text.strip().splitlines()
 
+        if len(lines) < 2 or any("No GP data" in l for l in lines):
+            # Guarding against no ID found for celestrak data
+            print(f"  [WARNING] No TLE data returned for {name} "
+                  f"(NORAD {NORAD_ID}) — check the ID is still active")
+            continue
+
         if len(lines) == 3:
             TLE_1, TLE_2 = lines[1], lines[2]
         else:
             TLE_1, TLE_2 = lines[0], lines[1]
         sat=Satrec.twoline2rv(TLE_1,TLE_2)
+
+        if sat.no_kozai == 0.0:
+            # Guarding against a zero value mean motion
+            print(f"  [WARNING] TLE for {name} has zero mean motion — "
+                  f"likely malformed. Skipping.")
+            continue
 
         # Computing TLE Age (sat.jdsatepoch)
         epoch_jd=sat.jdsatepoch+sat.jdsatepochF
