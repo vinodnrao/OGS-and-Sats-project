@@ -37,6 +37,8 @@ def find_pass_pairs(passes_a, passes_b, label_a, label_b, max_gap_hours=12, orbi
                 'second_shadow': second.get('shadow', 'N/A'),
                 'first_solar_el': first.get('solar_el'),
                 'second_solar_el': second.get('solar_el'),
+                'first_sun_sep': first.get('min_solar_sep', 180.0),
+                'second_sun_sep': second.get('min_solar_sep', 180.0),
                 'n_orbits':     n_orbits,
                 'orbit_label':  f"P+{n_orbits}",
             }
@@ -71,9 +73,24 @@ def find_pass_pairs(passes_a, passes_b, label_a, label_b, max_gap_hours=12, orbi
     sequential.sort(key=lambda x: x['gap_seconds'])
     return simultaneous, sequential
 
+SOLAR_EXCLUSION_DEG=10.0
 
 def _is_usable(p):
+    # A pass is usable if:
+    # - Night (solar_el<0) or 
+    # - Daytime but Sun is within SOLAR_EXCLUSION_DEG of satellite path
+    # and pass has a valid set time
+
     solar_el = p.get('solar_el')
-    return (solar_el is not None and
-            solar_el < 0.0 and
-            p.get('set') is not None)
+    min_sun_sep= p.get('min_solar_sep', 180.0)
+    has_set=p.get('set') is not None
+
+    if not has_set:
+        return False
+
+    is_night = solar_el is not None and solar_el < 0.0
+    if is_night:
+        return True
+
+    # Daytime - only usable if Sun stays outside exclusion cone
+    return min_sun_sep >= SOLAR_EXCLUSION_DEG
