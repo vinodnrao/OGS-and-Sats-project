@@ -110,6 +110,7 @@ def find_passes(sat, ogs_ecef, start_utc, ogs_lat, ogs_lon,hours=24, min_el=60.0
 
                 current_pass['set']= set_refined
                 current_pass['duration'] = (set_refined-current_pass['rise']).seconds
+                current_pass['min_solar_sep']=min_solar_separation(sat,ogs_ecef,ogs_lat,ogs_lon,current_pass['rise'],set_refined,step_secs=10)
 
                 passes.append(current_pass)
                 current_pass = {}
@@ -118,3 +119,53 @@ def find_passes(sat, ogs_ecef, start_utc, ogs_lat, ogs_lon,hours=24, min_el=60.0
         t += timedelta(seconds=step_secs)
 
     return passes
+
+def min_solar_separation(sat, ogs_ecef, ogs_lat, ogs_lon, rise, set_time, step_secs=10):
+    # Computes the minimum angular separation in degrees between satellite and the sun
+    # As seen from the OGS, sampled at intervals of step_secs between rise and set_time
+    # Returns minimum separation across the pass
+    from solar_position import sun_position_eci, solar_azimuth_el
+    from sgp4.api import jday
+    import numpy as np
+
+    min_sep=180
+    t=rise
+
+    while t <= set_time:
+        yr, mo, dy = t.year, t.month, t.day
+        hr, mn, sc = t.hour, t.minute, t.second + t.microsecond / 1e6
+        jd, fr=jday(yr, mo, dy, hr, mn, sc)
+        jd_full= jd + fr
+
+        # Satellite position
+        e, r_sat, _ = sat.sgp4(jd, fr)
+        if e != 0:
+            t += timedelta(seconds=step_secs)
+            continue
+
+        result=elevation_angle(sat, ogs_ecef, t, ogs_lat, ogs_lon)
+        if not result:
+            t += timedelta(seconds=step_secs)
+            continue
+
+        el_sat, az_sat, _ = result
+
+        # Sun position at same moment
+        r_sun = sun_position_eci(jd_full)
+        az_sun, el_sun = solar_azimuth_el(r_sun, ogs_ecef, jd_full, ogs_lat, ogs_lon)
+
+        # Angular separation via spherical law of cosines
+        el_s = np.radians(el_sat)
+        el_n = np.radians(el_sun)
+        daz  = np.radians(az_sat - az_sun)
+        cos_sep = (np.sin(el_s) * np.sin(el_n)+np.cos(el_s)*np.cos(el_n) * np.cos(daz))
+        cos_sep = np.clip(cos_sep, -1.0, 1.0)
+        sep = np.degrees(np.arccos(cos_sep))
+
+        if sep<min_sep:
+            min_sep=sep
+
+        t += timedelta(seconds=step_secs)
+
+    return min_sep
+
