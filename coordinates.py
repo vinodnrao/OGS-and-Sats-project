@@ -30,5 +30,5 @@ def ECEF_to_ECI(r_ecef,theta): # Will return an ECI position vector from an ECEF
 def ECI_to_ECEF(r_eci,theta):
     # Rotates an ECI vector to ECEF by applying Earths rotation
     cos, sin=np.cos(theta),np.sin(theta)
-    R=([[cos,sin,0],[-sin,cos,0],[0,0,1]])
+    R=np.array([[cos,sin,0],[-sin,cos,0],[0,0,1]])
     return R @ r_eci
