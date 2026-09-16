@@ -9,10 +9,22 @@ from mapping import save_passes_txt, save_pairs_txt # Part 6 - Saving the data a
 
 from datetime import datetime, timezone, timedelta
 import numpy as np
+import openpyxl
+import ast
 
 # CONFIG
-OGS_LOCATIONS = {"York": (53.94762420654297,-1.026491403579712, 0.017),"VIGO": (42.1724,  -8.6883,  0.050)} # dict mapping for co-ordinates from the OGS tuple
-SATELLITES = {"SPOQC":68423}
+# OGS_LOCATIONS = {"York": (53.94762420654297,-1.026491403579712, 0.017),"VIGO": (42.1724,  -8.6883,  0.050)} # dict mapping for co-ordinates from the OGS tuple
+# SATELLITES = {"SPOQC":68423}
+
+workbook=openpyxl.load_workbook('OGS_Input_SPOQC.xlsx')
+OGS_sheet=workbook['OGS_Input']
+SAT_sheet=workbook['Satellite_Input']
+OGS_raw_text=OGS_sheet['B2'].value
+SAT_raw_text=SAT_sheet['B2'].value
+OGS_LOCATIONS=ast.literal_eval(OGS_raw_text) if OGS_raw_text else {}
+SATELLITES=ast.literal_eval(SAT_raw_text) if SAT_raw_text else {}
+workbook.close()
+
 SCAN_START     = datetime(2026, 9, 1, 0, 0, 0, tzinfo=timezone.utc) # Today
 SCAN_DAYS      = 30 # Scanning over a month timeframe
 MIN_ELEVATION = [30]   # threshold of elevation, allows for multiple minimums
